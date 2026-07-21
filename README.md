@@ -24,7 +24,7 @@ This repository demonstrates the integration of **Reinforcement Learning (PPO)**
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/<YOUR_USERNAME>/RL-Industrial-Control.git
+git clone https://github.com/<enesuslu15>/RL-Industrial-Control.git
 cd RL-Industrial-Control
 ```
 
