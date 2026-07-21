@@ -1,0 +1,50 @@
+FUNCTION_BLOCK "TankSimulation"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      HeaterPower : Real;   // 0.0 to 100.0 (%)
+      AmbientTemp : Real := 20.0;   // Ambient temperature (C)
+      CycleTime_s : Real := 0.1; // Execution cycle time in seconds (e.g. 100ms OB30)
+   END_VAR
+
+   VAR_OUTPUT 
+      Temperature : Real := 20.0;   // Current tank temperature (C)
+   END_VAR
+
+   VAR 
+      HeatCapacity : Real := 0.05; // Heating rate multiplier per % power
+      CoolingRate : Real := 0.02;  // Cooling rate multiplier based on delta T
+   END_VAR
+
+   VAR_TEMP 
+      HeatingEffect : Real;
+      CoolingEffect : Real;
+   END_VAR
+
+
+BEGIN
+	// Tank Simulation Logic
+	// This block should ideally be called in a Cyclic Interrupt OB (e.g., OB30 - 100ms)
+	
+	// Limit Heater Power between 0 and 100%
+	IF #HeaterPower < 0.0 THEN
+	    #HeaterPower := 0.0;
+	ELSIF #HeaterPower > 100.0 THEN
+	    #HeaterPower := 100.0;
+	END_IF;
+	
+	// Calculate heating effect added to the water
+	#HeatingEffect := #HeaterPower * #HeatCapacity * #CycleTime_s;
+	
+	// Calculate cooling effect (loss to environment)
+	#CoolingEffect := (#Temperature - #AmbientTemp) * #CoolingRate * #CycleTime_s;
+	
+	// Update Temperature
+	#Temperature := #Temperature + #HeatingEffect - #CoolingEffect;
+	
+	// Ensure temperature doesn't drop below absolute ambient minimums unnaturally
+	IF #Temperature < #AmbientTemp AND #HeaterPower = 0.0 THEN
+	    #Temperature := #AmbientTemp;
+	END_IF;
+	
+END_FUNCTION_BLOCK
