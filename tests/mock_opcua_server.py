@@ -18,8 +18,9 @@ async def main():
     myobj = await server.nodes.objects.add_object(idx, "TankSimulation")
     
     # Variables: Temperature (Sensor), HeaterPower (Actuator)
-    myvar_temp = await myobj.add_variable(idx, "Temperature", 20.0)
-    myvar_power = await myobj.add_variable(idx, "HeaterPower", 0.0)
+    # Sabit Node ID'ler atıyoruz (TIA Portal ile aynı ns=4, i=2 ve i=3 olması için)
+    myvar_temp = await myobj.add_variable(ua.NodeId(3, 4), "Temperature", 20.0)
+    myvar_power = await myobj.add_variable(ua.NodeId(2, 4), "HeaterPower", 0.0)
     
     # Set variables to be writable by clients
     await myvar_temp.set_writable()

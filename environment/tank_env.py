@@ -18,10 +18,9 @@ class TankEnv(gym.Env):
     def __init__(self, opcua_url="opc.tcp://192.168.0.1:4840"):
         super(TankEnv, self).__init__()
         
-        # Action space: HeaterPower from 0.0 to 100.0
-        # For PPO, normalized action space [-1.0, 1.0] is often better, 
-        # but we can start with raw values for simplicity or scale them.
-        self.action_space = spaces.Box(low=0.0, high=100.0, shape=(1,), dtype=np.float32)
+        # Action space: Normalized [-1.0, 1.0] for stable PPO training
+        # This will be mapped to 0.0 - 100.0% internally
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
         
         # Observation space: Temperature (e.g. 0 to 100 degrees)
         self.observation_space = spaces.Box(low=0.0, high=100.0, shape=(1,), dtype=np.float32)
@@ -50,20 +49,31 @@ class TankEnv(gym.Env):
     def step(self, action):
         from asyncua import ua
         
-        heater_power = float(action[0])
-        # Clamp action just in case
-        heater_power = max(0.0, min(100.0, heater_power))
+        # 1. Normalization: Map [-1.0, 1.0] back to [0.0, 100.0]
+        norm_action = float(action[0])
+        heater_power = ((norm_action + 1.0) / 2.0) * 100.0
+        
+        # 2. Hardware Safety Interlock
+        # Prevent extreme bounds and ensure it never exceeds physical limits
+        MAX_SAFE_POWER = 100.0
+        MIN_SAFE_POWER = 0.0
+        heater_power = max(MIN_SAFE_POWER, min(MAX_SAFE_POWER, heater_power))
         
         # Send Action to PLC
-        self.loop.run_until_complete(self.client.write_value("HeaterPower", heater_power, ua.VariantType.Float))
+        try:
+            self.loop.run_until_complete(self.client.write_value("HeaterPower", heater_power, ua.VariantType.Float))
+        except Exception as e:
+            logger.error(f"Hardware Write Error: {e}")
         
-        # Wait a bit for PLC to process (simulating process time / cycle time)
-        # In a real environment, you might wait for a specific PLC tick or run fixed time.
+        # Wait a bit for PLC to process
         self.loop.run_until_complete(asyncio.sleep(0.5))
         
-        # Read New State
+        # Read New State with Error Handling
         temperature = self.loop.run_until_complete(self.client.read_value("Temperature"))
-        
+        if temperature is None:
+            logger.error("OPC UA Connection lost or read failed! Defaulting to 20.0 to prevent crash.")
+            temperature = 20.0
+            
         # Calculate Reward
         # Negative reward for distance to target. Also small penalty for high power to save energy.
         temp_error = abs(self.target_temperature - temperature)
@@ -90,13 +100,19 @@ class TankEnv(gym.Env):
         self.current_step = 0
         # Reset the environment by setting Heater to 0 and Temperature to ambient (e.g., 20.0)
         # Note: Writing Temperature directly to PLC might not be possible if it's an analog input,
-        # but in simulation we can reset the state variable.
-        self.loop.run_until_complete(self.client.write_value("HeaterPower", 0.0, ua.VariantType.Float))
-        self.loop.run_until_complete(self.client.write_value("Temperature", 20.0, ua.VariantType.Float))
+        try:
+            self.loop.run_until_complete(self.client.write_value("HeaterPower", 0.0, ua.VariantType.Float))
+            self.loop.run_until_complete(self.client.write_value("Temperature", 20.0, ua.VariantType.Float))
+        except Exception as e:
+            logger.error(f"Reset Write Error: {e}")
         
         self.loop.run_until_complete(asyncio.sleep(0.5))
-        temperature = self.loop.run_until_complete(self.client.read_value("Temperature"))
         
+        temperature = self.loop.run_until_complete(self.client.read_value("Temperature"))
+        if temperature is None:
+            logger.error("OPC UA Read Error during reset. Defaulting to 20.0")
+            temperature = 20.0
+            
         observation = np.array([temperature], dtype=np.float32)
         info = {}
         return observation, info
